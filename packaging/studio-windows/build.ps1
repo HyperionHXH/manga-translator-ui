@@ -727,7 +727,7 @@ using System.Reflection;
         Write-Info ('archive: ' + $archivePath)
         Write-Info ('archive entries: ' + $entryCount.ToString([Globalization.CultureInfo]::InvariantCulture))
         Write-Info ('sha256: ' + $archiveHash.Hash.ToLowerInvariant())
-        Write-Info ('checksum file: ' + $hashPath)
+        Write-Info ('checksum file: ' + $archiveHashPath)
     }
 
     Write-Step 'Build complete'
