@@ -31,7 +31,9 @@ notices are retained.
    IllustrationJaNai) are explicitly non-commercial. Other models originate
    from projects such as PaddleOCR, LaMa, and manga-image-translator and keep
    their own upstream terms. This build copies only the default CPU model set;
-   additional models downloaded later are governed by their source pages.
+   the LaMa Large PyTorch fallback (lama_large_512px.ckpt) can be supplied
+   separately from the upstream model repository when absent from the CPU
+   archive. Additional models downloaded later follow their source terms.
    Do not assume the GPL-3.0 project licence covers model weights.
 
 4. PortableGit (optional)

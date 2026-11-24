@@ -1,3 +1,13 @@
+# Manga Studio · Windows
+
+本分支以 Manga Translator UI v3.0.4 为基础，保留原有九种工作流、本地文件与文件夹、可视编辑、批量编辑、导出和提供方设置。控制中心、任务状态和日志采用 Saber 式分区，不引入书库，不改检测、OCR、翻译或修图引擎。
+
+在 Windows CPU 便携包中双击 `MangaStudio.exe`，打开控制中心，点击「启动核心」后进入翻译工作台。核心通过本机子进程运行，不监听端口；「停止核心」等待当前批量任务结束，「停止任务」沿用原工作流的取消语义。编辑器仍可单独打开。便携包须整目录保留，不需要 BAT 或系统 Python。
+
+开发者可用 [`packaging/studio-windows/build.ps1`](packaging/studio-windows/build.ps1) 从官方 3.0.4 CPU 便携包和本分支源码构建。若上游包没有 `lama_large_512px.ckpt`，用 `-LamaCheckpoint` 指向[上游模型](https://huggingface.co/dreMaz/AnimeMangaInpainting/blob/main/lama_large_512px.ckpt)；构建会校验 SHA-256。打包目录有启动说明和第三方授权。下方是上游原有文档，其 BAT 下载与维护说明不适用于 Studio 便携版。
+
+---
+
 <div align="center">
 
 <img src="doc/images/主页.png" width="360" style="max-width: 100%; height: auto;" alt="Manga Translator UI 主界面">

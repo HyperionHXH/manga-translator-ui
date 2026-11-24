@@ -5,12 +5,14 @@
 Build a portable Manga Studio Windows x64 CPU distribution.
 
 .DESCRIPTION
-Assembles a distribution from exactly two trusted inputs:
+Assembles a distribution from these trusted inputs:
 
   1. An already-extracted upstream CPU portable package containing
      packaging\python\pythonw.exe, packaging\uv.exe, models\, and optionally
      PortableGit\.
   2. This fork's Git-tracked distribution files.
+  3. A LaMa Large fallback checkpoint: from the upstream model directory or
+     an explicit -LamaCheckpoint path, verified against the engine's SHA-256.
 
 Nothing from an upstream source checkout, a user's config, .env, result/,
 logs/, presets/, .git, or any untracked file is copied. The output starts as
@@ -44,6 +46,10 @@ very long output root can hit legacy path limits in ZIP/copy tools.
 .PARAMETER Fork
 Fork checkout root. Defaults to the repository containing this script.
 
+.PARAMETER LamaCheckpoint
+Path to lama_large_512px.ckpt if absent from the upstream package. The stock
+LaMa Large loader requires this fallback even when CPU inference uses ONNX.
+
 .PARAMETER Archive
 Also create <Output>.zip (ZIP64 via .NET) and <Output>.zip.sha256.
 
@@ -53,9 +59,9 @@ check then has no bundled Git.
 
 .EXAMPLE
 powershell -NoProfile -ExecutionPolicy Bypass -File .\packaging\studio-windows\build.ps1 `
-  -Upstream D:\MT\Development\MangaStudio-build\upstream `
-  -Output D:\MT\Development\MangaStudio-build\MangaStudio-3.0.4-win64-cpu `
-  -Archive
+  -Upstream D:\build\upstream `
+  -Output D:\build\MangaStudio-3.0.4-win64-cpu `
+  -LamaCheckpoint D:\models\lama_large_512px.ckpt -Archive
 
 .NOTES
 Preconditions:
@@ -80,6 +86,8 @@ param(
 
     [string]$Fork,
 
+    [string]$LamaCheckpoint,
+
     [switch]$Archive,
 
     [switch]$SkipPortableGit
@@ -103,14 +111,15 @@ $script:GitExe = $null
 $script:ForkFull = $null
 $script:OutputFull = $null
 
-# Files that are bundled from the extracted upstream CPU portable package.
-# These are the defaults needed for an offline first run with the stock config:
+# Default CPU models. The LaMa checkpoint may be supplied separately because
+# the official CPU archive ships only LaMa ONNX. These files support the stock
 # default detector, LaMa Large inpainting, 48px/default OCR, CTC OCR, and the
 # PaddleOCR Chinese/Korean recognition models. Additional models are downloaded
 # by the application on first use and remain subject to their upstream licences.
 $script:ModelFiles = @(
     'detection\detect-20241225.ckpt',
     'inpainting\lamalarge.onnx',
+    'inpainting\lama_large_512px.ckpt',
     'ocr\alphabet-all-v5.txt',
     'ocr\alphabet-all-v7.txt',
     'ocr\ch_PP-OCRv5_rec_server_infer.onnx',
@@ -398,14 +407,26 @@ if (-not [IO.Directory]::Exists((Join-Path $upstreamFull 'packaging\python\Lib\s
     throw ('Upstream portable Python has no Lib\site-packages directory: ' + $upstreamFull)
 }
 
+$modelRoot = Join-Path $upstreamFull 'models'
+$lamaFallback = 'inpainting\lama_large_512px.ckpt'
+$lamaFallbackPath = if ($LamaCheckpoint) { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LamaCheckpoint) } else { Join-Path $modelRoot $lamaFallback }
+if (-not [IO.File]::Exists($lamaFallbackPath)) {
+    throw 'Missing lama_large_512px.ckpt. Pass the official model via -LamaCheckpoint; the ONNX file alone is not enough for the stock loader.'
+}
+$expectedLamaSha256 = '11d30fbb3000fb2eceae318b75d9ced9229d99ae990a7f8b3ac35c8d31f2c935'
+if ((Get-FileHash -LiteralPath $lamaFallbackPath -Algorithm SHA256).Hash -ne $expectedLamaSha256) {
+    throw ('Unexpected LaMa checkpoint SHA-256: ' + $lamaFallbackPath)
+}
+$modelSources = @{}
 foreach ($modelFile in $script:ModelFiles) {
-    $modelPath = Join-Path (Join-Path $upstreamFull 'models') $modelFile
+    $modelPath = if ($modelFile -eq $lamaFallback) { $lamaFallbackPath } else { Join-Path $modelRoot $modelFile }
     if (-not [IO.File]::Exists($modelPath)) {
         throw ('Required redistributable model is missing from the upstream extraction: ' + $modelPath)
     }
     if ((Get-Item -LiteralPath $modelPath).Length -le 0) {
         throw ('Required model file is empty: ' + $modelPath)
     }
+    $modelSources[$modelFile] = $modelPath
 }
 
 $portableGitSource = Join-Path $upstreamFull 'PortableGit'
@@ -528,7 +549,7 @@ using System.Reflection;
 
     Write-Step 'Copying required CPU models'
     foreach ($modelFile in $script:ModelFiles) {
-        $modelSource = Join-Path (Join-Path $upstreamFull 'models') $modelFile
+        $modelSource = $modelSources[$modelFile]
         $modelDestination = Join-Path (Join-Path $outputFull 'models') $modelFile
         Copy-RequiredFile -Source $modelSource -Destination $modelDestination -Label ('model ' + $modelFile)
     }

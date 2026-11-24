@@ -6,6 +6,8 @@ START
   No installer, .bat file, system Python, or external runtime is used.
   The launcher starts packaging\python\pythonw.exe with
   desktop_qt_ui\main.py from this folder.
+  In the control center, click Start Core, then Open Translation Workspace.
+  Stop Core waits for the current batch; Stop Task requests cancellation.
 
 REQUIREMENTS
   - 64-bit Windows 10 or Windows 11.
@@ -22,7 +24,7 @@ WHAT IS INCLUDED
   - Bundled Python 3.12 runtime: packaging\python\
   - uv package manager for optional maintenance: packaging\uv.exe
   - Default offline CPU models in models\: text detection, LaMa Large
-    inpainting, 48px/CTC OCR, and PaddleOCR Chinese/Korean recognition.
+    ONNX with its PyTorch fallback, 48px/CTC OCR, and Chinese/Korean PaddleOCR.
   - Optional PortableGit\ when this build included it.
   Additional models are downloaded by the application on first use.
 
@@ -68,6 +70,8 @@ UPDATES
 
 中文快速开始
   双击 MangaStudio.exe 启动。无需安装，不使用 BAT，也不依赖系统 Python。
+  在控制中心点击「启动核心」，再进入翻译工作台。「停止核心」等待正在处理的
+  批次；要取消当前任务，使用「停止任务」。
   请保持整个文件夹完整，不要单独移动 EXE；请放在可写目录（不要放在只读
   位置或权限受限的 Program Files 下）。首次启动会在本目录创建
   config\config.json、.env、result\ 等文件，升级前请先备份。
