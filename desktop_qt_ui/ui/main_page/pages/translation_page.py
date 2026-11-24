@@ -1,4 +1,5 @@
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QHBoxLayout, QSplitter, QVBoxLayout, QWidget
 from qfluentwidgets import (
     BodyLabel,
     CardWidget,
@@ -32,6 +33,10 @@ def create_translation_page(self) -> QWidget:
     header_layout.addWidget(self.translation_page_title)
     header_layout.addWidget(self.translation_page_subtitle)
     page_layout.addWidget(header_card)
+    workspace = QSplitter(Qt.Orientation.Horizontal)
+    workspace.setChildrenCollapsible(False)
+    workspace.setHandleWidth(10)
+    page_layout.addWidget(workspace, 1)
 
     self.translation_input_card = CardWidget()
     input_layout = QVBoxLayout(self.translation_input_card)
@@ -60,7 +65,6 @@ def create_translation_page(self) -> QWidget:
         data_service=getattr(self.controller, "file_list_data_service", None),
     )
     input_layout.addWidget(self.file_list, 1)
-    page_layout.addWidget(self.translation_input_card, 1)
 
     self.translation_task_card = HeaderCardWidget(self._t("Translation Task"))
     task_layout = QVBoxLayout()
@@ -111,7 +115,11 @@ def create_translation_page(self) -> QWidget:
     self.start_button = PrimaryPushButton(self._t("Start Translation"))
     self.start_button.setFixedHeight(44)
     task_layout.addWidget(self.start_button)
-    page_layout.addWidget(self.translation_task_card)
+    self.translation_task_card.setMinimumWidth(258)
+    workspace.addWidget(self.translation_input_card)
+    workspace.addWidget(self.translation_task_card)
+    workspace.setStretchFactor(0, 3)
+    workspace.setStretchFactor(1, 2)
 
     self.add_files_button.clicked.connect(self._trigger_add_files)
     self.add_folder_button.clicked.connect(self.controller.add_folder)

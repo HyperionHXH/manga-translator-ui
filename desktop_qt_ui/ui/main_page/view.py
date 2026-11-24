@@ -1,4 +1,5 @@
 from PyQt6.QtCore import QObject, Qt, QTimer, QUrl, pyqtSignal, pyqtSlot
+from pathlib import Path
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -135,6 +136,7 @@ class MainView(QObject):
         self.config_service = get_config_service()
         self.i18n = get_i18n_manager()
         self.app_version = get_app_version()
+        self._studio_portable = (Path(self.config_service.root_dir) / "BUILD-INFO.json").is_file()
         self.env_widgets = {}
         self._active_api_tasks = {}
         self._update_check_in_progress = False
@@ -150,6 +152,12 @@ class MainView(QObject):
         self.translation_interface = self._create_translation_interface(self.translation_page)
         self.settings_page = self._create_settings_page()
         self.about_page = self._create_about_page()
+        if self._studio_portable:
+            self.about_update_source_label.hide()
+            self.about_update_mirror_combo.hide()
+            self.about_update_branch_label.hide()
+            self.about_update_branch_combo.hide()
+            self.about_auto_check_checkbox.setEnabled(False)
         self.env_page = self._create_env_page()
         self.prompt_page = self._create_prompt_page()
         self.replacements_page = self._create_replacements_page()
@@ -218,10 +226,13 @@ class MainView(QObject):
         return key
 
     def _maybe_auto_check_updates(self):
-        if bool(self.config_service.get_config().app.auto_check_updates):
+        if not self._studio_portable and self.config_service.get_config().app.auto_check_updates:
             self.check_for_updates(auto=True)
 
     def check_for_updates(self, auto: bool = False):
+        if self._studio_portable:
+            QDesktopServices.openUrl(QUrl("https://github.com/HyperionHXH/manga-translator-ui/releases"))
+            return
         if self._update_check_in_progress:
             return
         self._update_check_in_progress = True
@@ -264,6 +275,8 @@ class MainView(QObject):
 
     def start_update_maintenance(self) -> bool:
         """Launch the existing packaging/launch.py maintenance workflow."""
+        if self._studio_portable:
+            return False
         started = launch_update_maintenance(self._update_branch)
         if started:
             self._set_about_update_status("Update Process Started")

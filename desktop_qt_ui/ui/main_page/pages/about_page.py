@@ -632,6 +632,10 @@ def refresh_about_page_texts(self):
         else self._t("Check for Updates")
     )
     self.about_open_release_button.setText(self._t("Open Release Page"))
+    if self._studio_portable:
+        zh = self.i18n.get_current_locale().startswith("zh")
+        self.about_check_updates_button.setText("查看 Manga Studio 发布页" if zh else "Open Manga Studio Releases")
+        self.about_update_status.setText("便携版通过新版整包更新。" if zh else "Update the portable edition using a new package.")
     self.about_update_source_label.setText(self._t("Update Source"))
     self.about_update_branch_label.setText(self._t("Update Branch"))
     self.about_commit_label.setText(

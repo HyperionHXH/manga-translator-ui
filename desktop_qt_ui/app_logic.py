@@ -62,6 +62,7 @@ from services import (
     get_translation_service,
 )
 from services.state_manager import AppStateKey
+from studio_core import StudioCore
 from utils.asyncio_cleanup import shutdown_event_loop
 from utils.font_list import fonts_directory
 
@@ -136,14 +137,11 @@ class MainAppLogic(QObject):
         self.i18n = get_i18n_manager()
         self.preset_service = get_preset_service()
 
-        # 扫描与翻译严格串行，避免模型/ONNX 资源并发冲突；执行器常驻，
-        # 运行期间不在 GUI 线程 join，应用退出时再等待任务完成清理。
-        self._task_executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1,
-            thread_name_prefix="translation-task",
-        )
+        self._task_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="file-task")
+        self.studio_core = StudioCore(self.config_service.root_dir, self)
+        self.studio_core.progress.connect(self._on_core_progress)
+        self.studio_core.settled.connect(self._on_core_settled)
         self._scan_future: Optional[concurrent.futures.Future] = None
-        self._translate_future: Optional[concurrent.futures.Future] = None
         self._cleanup_future: Optional[concurrent.futures.Future] = None
         self._scan_request_id = 0
         self.current_worker = None  # 当前运行的worker
@@ -1851,33 +1849,29 @@ class MainAppLogic(QObject):
         self.current_task_id += 1
         task_id = self.current_task_id
         
-        translation_worker = TranslationRunnable(
-            files=files_to_process,
-            config_dict=task_config,
-            output_folder=task_config.get("app", {}).get("last_output_path", ""),
-            root_dir=self.config_service.root_dir,
-            file_to_folder_map=self.file_to_folder_map.copy(),
-            finished_callback=lambda results: self.on_task_finished(results, task_id),
-            error_callback=lambda error: self.on_task_error(error, task_id),
-            progress_callback=lambda current, total, message: self.on_task_progress(
-                current, total, message, task_id
-            ),
-        )
-        
-        self.current_worker = translation_worker
-        
-        try:
-            self._translate_future = self._task_executor.submit(translation_worker.run)
-        except RuntimeError as exc:
-            self.current_worker = None
-            self.state_manager.set_translating(False)
-            self.state_manager.set_status_message("任务启动失败")
-            self._ui_log(f"翻译任务启动失败: {exc}", "ERROR")
+        if not self.studio_core.run(files_to_process, task_config,
+                                    task_config.get("app", {}).get("last_output_path", ""),
+                                    self.file_to_folder_map):
+            if not self.studio_core.busy:
+                self.on_task_error("批量核心未就绪；请在控制中心启动核心后重试。", task_id)
+                self._cleanup_after_task()
             return
-
         self._ui_log(f"翻译任务已启动 (任务ID: {task_id})")
         self.state_manager.set_translating(True)
         self.state_manager.set_status_message("正在翻译...")
+
+    def _on_core_progress(self, current, total, message):
+        if not self._stop_requested:
+            self.on_task_progress(current, total, message, self.current_task_id)
+
+    def _on_core_settled(self, kind, value):
+        if self._stop_requested or kind == "cancelled":
+            self._cleanup_stopped_task_when_idle()
+        elif kind == "done":
+            self.on_task_finished(value, self.current_task_id)
+        else:
+            self.on_task_error(value, self.current_task_id)
+            self._cleanup_after_task()
 
     def start_backend_task(self):
         """
@@ -1887,18 +1881,17 @@ class MainAppLogic(QObject):
         if self.state_manager.is_translating():
             self._ui_log("一个任务已经在运行中。", "WARNING")
             return
+        if self.studio_core.state != "ready":
+            self.warning_dialog_requested.emit("请先在控制中心启动批量核心。")
+            return
         self._stop_requested = False
-
         self._scan_future = None if self._scan_future and self._scan_future.done() else self._scan_future
-        self._translate_future = (
-            None if self._translate_future and self._translate_future.done() else self._translate_future
-        )
         self._cleanup_future = (
             None if self._cleanup_future and self._cleanup_future.done() else self._cleanup_future
         )
         if any(
             future is not None and not future.done()
-            for future in (self._scan_future, self._translate_future, self._cleanup_future)
+            for future in (self._scan_future, self._cleanup_future)
         ):
             self._ui_log("上一个任务仍在后台收尾，请稍后再试。", "WARNING")
             return
@@ -2115,6 +2108,13 @@ class MainAppLogic(QObject):
 
     def stop_task(self) -> bool:
         """停止翻译任务"""
+        if self.studio_core.busy:
+            if not self._stop_requested:
+                self._stop_requested = True
+                self.state_manager.set_status_message("正在停止...")
+                self.main_view.set_stopping_state()
+                self.studio_core.cancel()
+            return True
         if self.current_worker and hasattr(self.current_worker, 'stop'):
             self._stop_requested = True
             self.state_manager.set_status_message("正在停止...")
@@ -2139,7 +2139,7 @@ class MainAppLogic(QObject):
             return True
         if any(
             future is not None and not future.done()
-            for future in (self._scan_future, self._translate_future, self._cleanup_future)
+            for future in (self._scan_future, self._cleanup_future)
         ):
             self._ui_log("后台任务尚未结束，不能恢复开始状态。", "WARNING")
             return False
@@ -2161,14 +2161,10 @@ class MainAppLogic(QObject):
     def _cleanup_stopped_task_when_idle(self):
         if self._shutdown_started:
             return
-        if any(
-            future is not None and not future.done()
-            for future in (self._scan_future, self._translate_future)
-        ):
+        if self.studio_core.busy or (self._scan_future is not None and not self._scan_future.done()):
             QTimer.singleShot(100, self._cleanup_stopped_task_when_idle)
             return
         self._scan_future = None
-        self._translate_future = None
         if self._cleanup_future is None:
             self._cleanup_after_task()
         if self._cleanup_future is not None and not self._cleanup_future.done():
@@ -3178,7 +3174,6 @@ class WorkerSignals(QObject):
     finished = pyqtSignal(object)
     error = pyqtSignal(str)
     progress = pyqtSignal(str)
-    translation_progress = pyqtSignal(int, int, str)
 
 
 class FileScannerRunnable(QRunnable):
@@ -3395,150 +3390,3 @@ class FileScannerRunnable(QRunnable):
         """线程安全地发送进度信号"""
         if self._is_running:
             self.signals.progress.emit(msg)
-
-
-class TranslationRunnable(QRunnable):
-    """翻译任务（线程池版本）"""
-    
-    def __init__(self, files, config_dict, output_folder, root_dir, file_to_folder_map,
-                 finished_callback, error_callback, progress_callback):
-        super().__init__()
-        self.files = files
-        self.config_dict = config_dict
-        self.output_folder = output_folder
-        self.root_dir = root_dir
-        self.file_to_folder_map = file_to_folder_map or {}
-        self.finished_callback = finished_callback
-        self.error_callback = error_callback
-        
-        self.progress_callback = progress_callback # Keep reference just in case
-        self._is_running = True
-        self._current_task = None
-        self._loop = None
-        self._worker = None
-        self._last_progress_emit_at = 0.0
-        self.logger = get_logger(__name__)
-        self.file_service = get_file_service()
-        self.setAutoDelete(True)
-        
-        # ✅ 创建信号对象用于线程安全通信
-        self.signals = WorkerSignals()
-        if finished_callback:
-            self.signals.finished.connect(lambda args: finished_callback(*args), type=Qt.ConnectionType.QueuedConnection)
-        if error_callback:
-            self.signals.error.connect(error_callback, type=Qt.ConnectionType.QueuedConnection)
-            
-        if progress_callback:
-            self.signals.translation_progress.connect(progress_callback, type=Qt.ConnectionType.QueuedConnection)
-    
-    def stop(self):
-        """停止任务"""
-        self._is_running = False
-        if self._worker is not None:
-            self._worker._is_running = False
-        task = self._current_task
-        loop = self._loop
-        if loop is not None and task is not None and not task.done():
-            try:
-                loop.call_soon_threadsafe(task.cancel)
-            except RuntimeError:
-                pass
-    
-    def run(self):
-        """在线程池中执行"""
-        loop = None
-        try:
-            import asyncio
-            import sys
-            if not self._is_running:
-                return
-            self.logger.info("--- 开始处理任务...")
-
-            # Windows平台初始化
-            if sys.platform == 'win32':
-                import ctypes
-                try:
-                    WSADATA_SIZE = 400
-                    wsa_data = ctypes.create_string_buffer(WSADATA_SIZE)
-                    ws2_32 = ctypes.WinDLL('ws2_32')
-                    result = ws2_32.WSAStartup(0x0202, wsa_data)
-                    if result != 0:
-                        self.logger.error(f"--- [ERROR] WSAStartup failed with code {result}")
-                except Exception as e:
-                    self.logger.error(f"--- [ERROR] Failed to initialize WSA: {e}")
-                
-                asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
-            # 创建事件循环
-            loop = asyncio.new_event_loop()
-            self._loop = loop
-            asyncio.set_event_loop(loop)
-            
-            # 创建并运行任务（复用TranslationWorker的_do_processing逻辑）
-            worker = TranslationWorker(
-                self.files, self.config_dict, self.output_folder, 
-                self.root_dir, self.file_to_folder_map
-            )
-            self._worker = worker
-            worker._is_running = self._is_running
-            if not self._is_running:
-                return
-            
-            # 用于接收 worker 的 finished 信号
-            results = []
-            worker_had_error = False
-
-            def on_worker_finished(worker_results):
-                results.extend(worker_results)
-
-            def on_worker_error(msg):
-                nonlocal worker_had_error
-                worker_had_error = True
-                self._emit_error(msg)
-            
-            # 连接信号到回调
-            worker.progress.connect(lambda c, t, m: self._emit_progress(c, t, m))
-            worker.error.connect(on_worker_error)
-            worker.finished.connect(on_worker_finished)
-            
-            self._current_task = loop.create_task(worker._do_processing())
-            loop.run_until_complete(self._current_task)
-            
-            # 任务完成，发送结果
-            if not worker_had_error:
-                self._emit_finished(results)
-
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            import traceback
-            error_msg = f"翻译任务错误: {str(e)}\n{traceback.format_exc()}"
-            self.logger.error(error_msg)
-            self._emit_error(error_msg)
-        finally:
-            if loop:
-                shutdown_event_loop(loop, logger=self.logger, label="threadpool worker loop")
-            self._worker = None
-            self._current_task = None
-            self._loop = None
-    
-    def _emit_finished(self, results):
-        """线程安全地发送完成信号"""
-        if self._is_running:
-            self.signals.finished.emit((results,))
-    
-    def _emit_error(self, msg):
-        """线程安全地发送错误信号"""
-        if self._is_running:
-            self.signals.error.emit(msg)
-    
-    def _emit_progress(self, current, total, message):
-        """线程安全地发送进度信号"""
-        if not self._is_running:
-            return
-        now = time.monotonic()
-        is_terminal = total > 0 and current >= total
-        if not is_terminal and now - self._last_progress_emit_at < 0.05:
-            return
-        self._last_progress_emit_at = now
-        self.signals.translation_progress.emit(current, total, message)

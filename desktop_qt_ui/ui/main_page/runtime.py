@@ -125,7 +125,7 @@ def on_translation_state_changed(self, is_translating: bool):
         self.start_button.setText(self._t("Starting..."))
         QTimer.singleShot(2000, self._enable_stop_button)
     else:
-        self.start_button.setEnabled(True)
+        self.start_button.setEnabled(self.controller.studio_core.state == "ready")
         _set_start_button_state(self, "ready")
 
         try:

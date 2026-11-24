@@ -187,7 +187,7 @@ def test_stopping_state_remains_until_worker_and_cleanup_finish(monkeypatch):
         _scan_request_id=1,
         current_task_id=1,
         _scan_future=scan_future,
-        _translate_future=None,
+        studio_core=SimpleNamespace(busy=False),
         _cleanup_future=None,
         _shutdown_started=False,
         _ui_log=lambda *_args: None,

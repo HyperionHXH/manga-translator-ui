@@ -100,7 +100,7 @@ def _set_windows_app_user_model_id():
         import ctypes
 
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-            'manga.translator.ui.1.0'
+            'manga.studio.windows'
         )
     except Exception:
         logging.exception("设置 Windows AppUserModelID 失败")
@@ -248,8 +248,8 @@ def main():
     
     # 1. 创建 QApplication 实例
     app = QApplication(sys.argv)
-    app.setApplicationName("Manga Translator UI")
-    app.setOrganizationName("Manga Translator UI")
+    app.setApplicationName("Manga Studio")
+    app.setOrganizationName("Manga Studio")
     app_version = get_app_version()
     if app_version != "unknown":
         app.setApplicationVersion(app_version)

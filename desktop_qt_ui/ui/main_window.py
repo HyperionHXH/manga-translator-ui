@@ -21,6 +21,7 @@ from services.file_list_data_service import FileCatalogSnapshot, FileListDataSer
 from theme_registry import THEME_OPTIONS
 from ui.main_page.view import MainView
 from ui.secondary_pages.themed_message_box import show_error_dialog
+from ui.studio_pages import StudioLogs, StudioOverview
 from utils.app_version import format_app_title, get_app_version
 
 
@@ -43,7 +44,7 @@ class MainWindow(FluentWindow):
         )
 
         self._update_window_title()
-        self.resize(1300, 800)  # 设置默认窗口大小（增加20像素）
+        self.resize(1220, 800)
         self.setMinimumSize(800, 600)  # 设置最小窗口大小
         # 不设置最大大小，允许无限制调整
 
@@ -55,8 +56,7 @@ class MainWindow(FluentWindow):
         y = (screen.height() - self.height()) // 2
         self.move(x, y)
 
-        # 侧边栏：默认收起（48px 窄图标条），悬停显示提示，点汉堡按钮展开
-        self.navigationInterface.setExpandWidth(200)
+        self.navigationInterface.setExpandWidth(188)
         self.navigationInterface.setUpdateIndicatorPosOnCollapseFinished(True)
         self.navigationInterface.setReturnButtonVisible(False)
 
@@ -92,7 +92,7 @@ class MainWindow(FluentWindow):
 
     def _update_window_title(self):
         """Keep the product name stable across interface languages."""
-        self.setWindowTitle(format_app_title("Manga Translator UI", self.app_version))
+        self.setWindowTitle(format_app_title("Manga Studio", self.app_version))
 
     def _setup_logic_and_models(self):
         """实例化所有逻辑和数据模型"""
@@ -145,13 +145,22 @@ class MainWindow(FluentWindow):
         self.stacked_widget.currentChanged.connect(self._on_fluent_page_changed)
 
     def _register_main_interfaces(self):
+        self.studio_overview = StudioOverview(self)
+        self.studio_logs = StudioLogs(self)
+        self._close_after_core = False
+        self.app_logic.studio_core.changed.connect(self._studio_core_changed)
+        self.app_logic.studio_core.fault.connect(self._show_error_dialog)
+        self.state_manager.is_translating_changed.connect(self._studio_core_changed)
+        t = self.studio_overview.text
         pages = [
+            ("overview", self.studio_overview, FIF.HOME, t("控制中心", "Overview")),
             (
                 "translation",
                 self.main_view.translation_interface,
-                FIF.HOME,
-                self._t("Translation Interface"),
+                FIF.PLAY,
+                t("翻译工作台", "Translation Workspace"),
             ),
+            ("logs", self.studio_logs, FIF.COMMAND_PROMPT, t("运行日志", "Run Logs")),
             (
                 "settings",
                 self.main_view.settings_page,
@@ -196,7 +205,20 @@ class MainWindow(FluentWindow):
 
         self._main_pages_by_widget = {page: key for key, page, _icon, _text in pages}
         self.main_view.set_navigation_switcher(self._switch_main_page)
-        self.switchTo(self.main_view.translation_interface)
+        self.switchTo(self.studio_overview)
+        self._studio_core_changed()
+
+    def _studio_core_changed(self, *_):
+        state = self.app_logic.studio_core.state
+        running = self.state_manager.is_translating()
+        if not running:
+            self.main_view.start_button.setEnabled(state == "ready")
+            if self._close_after_core:
+                if state in {"off", "failed"}:
+                    self._close_after_core = False
+                    QTimer.singleShot(0, self.close)
+                else:
+                    self.app_logic.studio_core.stop()
 
     def _switch_main_page(self, page_key: str):
         page = (
@@ -204,6 +226,10 @@ class MainWindow(FluentWindow):
             if hasattr(self.main_view, "page_widgets")
             else None
         )
+        if page_key == "overview":
+            page = self.studio_overview
+        elif page_key == "logs":
+            page = self.studio_logs
         if page is not None:
             self.switchTo(page)
             self._on_main_page_activated(page_key)
@@ -678,6 +704,8 @@ class MainWindow(FluentWindow):
         if hasattr(self, "main_view") and self.main_view:
             self.main_view.refresh_ui_texts()
             self._refresh_navigation_texts()
+            self.studio_overview.refresh()
+            self.studio_logs.refresh_labels()
 
         # 刷新编辑器视图的所有文本（如果存在）
         if hasattr(self, "editor_view") and self.editor_view:
@@ -911,8 +939,11 @@ class MainWindow(FluentWindow):
             traceback.print_exc()
 
     def _refresh_navigation_texts(self):
+        t = self.studio_overview.text
         nav_labels = {
-            "translation": self._t("Translation Interface"),
+            "overview": t("控制中心", "Overview"),
+            "translation": t("翻译工作台", "Translation Workspace"),
+            "logs": t("运行日志", "Run Logs"),
             "settings": self._t("Settings"),
             "about": self._t("About Application"),
             "env": self._t("API Management"),
@@ -930,6 +961,13 @@ class MainWindow(FluentWindow):
 
     def closeEvent(self, event):
         """处理窗口关闭事件"""
+        core = self.app_logic.studio_core
+        if self.state_manager.is_translating() or core.state not in {"off", "failed"}:
+            event.ignore()
+            self._close_after_core = True
+            self.switchTo(self.studio_overview)
+            self._studio_core_changed()
+            return
         if hasattr(self, "main_view") and hasattr(self.main_view, "update_checker"):
             self.main_view.update_checker.stop()
         unfinished_exports = 0

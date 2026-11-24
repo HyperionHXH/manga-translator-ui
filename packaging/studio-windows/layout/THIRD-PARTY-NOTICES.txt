@@ -1,0 +1,53 @@
+Manga Studio third-party notices
+================================
+
+Manga Studio is a Windows distribution fork of hgmzhn/manga-translator-ui
+(v3.0.4 base), which is based on manga-image-translator. The project code is
+licensed under GPL-3.0; see LICENSE.txt. The exact fork revision included in
+this build is recorded in BUILD-INFO.json. Upstream copyright and licence
+notices are retained.
+
+1. Bundled Python runtime
+   packaging\python\ is a Python 3.12 runtime. Its Python Software Foundation
+   licence is reproduced in LICENSES\PYTHON.txt. The runtime also contains
+   third-party Python packages; their licence metadata is kept in
+   packaging\python\Lib\site-packages\*.dist-info (including LICENSE files
+   where the package provides one). Notable packages include PyQt6 (GPL-3.0
+   or a commercial Qt/PyQt licence), PyTorch (BSD-style), ONNX Runtime (MIT),
+   NumPy (BSD-style), Pillow (HPND), and transformers (Apache-2.0). This list
+   is illustrative, not exhaustive; the per-package metadata is authoritative.
+
+2. uv package manager
+   packaging\uv.exe is distributed by Astral under its upstream licence. See
+   its upstream project and the package metadata for details. It is included
+   for optional dependency maintenance; the application does not need it to
+   start.
+
+3. Models
+   The required offline models copied into models\ come from the upstream
+   project's model distribution. The observed model repository notice is
+   reproduced in LICENSES\MODELS.md and identifies the repository licence as
+   CC-BY-NC-4.0. Some optional models (for example MangaJaNai and
+   IllustrationJaNai) are explicitly non-commercial. Other models originate
+   from projects such as PaddleOCR, LaMa, and manga-image-translator and keep
+   their own upstream terms. This build copies only the default CPU model set;
+   additional models downloaded later are governed by their source pages.
+   Do not assume the GPL-3.0 project licence covers model weights.
+
+4. PortableGit (optional)
+   If PortableGit\ is present, it is a Git for Windows distribution and its
+   licence is reproduced in LICENSES\PORTABLE-GIT.txt.
+
+5. Fonts
+   fonts\ is copied from the fork's tracked upstream distribution. The font
+   files are not covered by a single project licence file; each font keeps
+   its original upstream font licence. Verify redistribution terms for your
+   use case, especially for commercial distribution.
+
+6. Icons
+   Fluent UI System Icons are used by the desktop UI. Their licence text is
+   retained at desktop_qt_ui\ui\icons\LICENSE_FLUENT_UI_SYSTEM_ICONS.txt.
+
+7. No warranty
+   This distribution is provided without warranty. Model outputs, third-party
+   services, and user-provided content remain the user's responsibility.
